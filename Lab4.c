@@ -85,19 +85,23 @@ void PortE_Init(void){
 }
 //------------------Task 1--------------------------------
 //51-tap FIR filter
-const long h[51]={4,-1,-8,-14,-16,-10,-1,6,5,-3,-13,
+const long h1[51]={4,-1,-8,-14,-16,-10,-1,6,5,-3,-13,
      -15,-8,3,5,-5,-20,-25,-8,25,46,26,-49,-159,-257,
      984,-257,-159,-49,26,46,25,-8,-25,-20,-5,5,3,-8,
      -15,-13,-3,5,6,-1,-10,-16,-14,-8,-1,4};
+const long h[51]={0,0,0,0,0,0,0,0,0,0,0,
+     0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+     1280,0,0,0,0,0,0,0,0,0,0,0,0,0,
+     0,0,0,0,0,0,0,0,0,0,0,0};
 long Filter(long data){
 static long x[102]; // this MACQ needs twice
 long y=0;
-static unsigned long n=3;   // 3, 4, or 5
+static unsigned long n=51;   
 int i;
   n++;
   if(n==102) n=51;     
   x[n] = x[n-51] = data;  // two copies of new data
-  for(i=n-51;i<n;i++){
+  for(i=0;i<51;i++){
 		y=y+h[i]*x[n-i];
 	}
   return y;
@@ -238,7 +242,7 @@ void Consumer(void)
 			data = OS_Fifo_Get();    // get from producer
 			
 			//print voltage vs. time
-			LCDy = 100;	//map ADC value to pixel value
+			LCDy = ((4095-data)*160)/4095;	//map ADC value to pixel value
 			ST7735_DrawPixel(Coordinates[0][LCDx], Coordinates[1][LCDx],0x0000);     //Clear the previous pixel value
 			ST7735_DrawPixel(LCDx,LCDy,0xFFFF);				//Draw new pixel value
 			Coordinates[0][LCDx]=LCDx;					//Store current setpoint and speed in array to be overwritten on next pass 
@@ -358,7 +362,7 @@ int main(void){
   
   NumCreated = 0 ;
 // create initial foreground threads
-  //NumCreated += OS_AddThread(&Interpreter,128,2); 
+  //NumCreated += OS_AddThread(&Interpreter,128,1); 
   NumCreated += OS_AddThread(&Consumer,128,1); 
   NumCreated += OS_AddThread(&PID,128,3);  // Lab 3, make this lowest priority										
   OS_Launch(TIME_2MS); // doesn't return, interrupts enabled in here

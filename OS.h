@@ -23,7 +23,7 @@ extern void(*HandlerTaskArray[12])(void);
 
 typedef struct tcb tcbType;
 
-#define PROFILER 1
+//#define PROFILER 1
 #define PROFSIZE 1000
 extern unsigned long ThreadTime[PROFSIZE];
 extern unsigned long ThreadAction[PROFSIZE];
