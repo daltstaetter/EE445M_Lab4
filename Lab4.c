@@ -46,7 +46,7 @@ unsigned long NumCreated;   // number of foreground threads created
 unsigned long PIDWork;      // current number of PID calculations finished
 unsigned long FilterWork;   // number of digital filter calculations finished
 unsigned long NumSamples;   // incremented every ADC sample, in Producer
-#define FS 400            // producer/consumer sampling
+#define FS 12800            // producer/consumer sampling
 #define RUNLENGTH (20*FS) // display results and quit when NumSamples==RUNLENGTH
 // 20-sec finite time experiment duration 
 
@@ -54,7 +54,7 @@ unsigned long NumSamples;   // incremented every ADC sample, in Producer
 //#define PERIOD 800000   //100 Hz
 //#define PERIOD 160000   // 500 Hz
 //#define PERIOD 80000    //1000 Hz
-long x[64],y[64];         // input and output arrays for FFT
+
 
 //---------------------User debugging-----------------------
 unsigned long DataLost;     // data sent by Producer, but not received by Consumer
@@ -84,21 +84,23 @@ void PortE_Init(void){
   GPIO_PORTE_AMSEL_R &= ~0x7F;;      // disable analog functionality on PE
 }
 //------------------Task 1--------------------------------
-// 2 kHz sampling ADC channel 1, using software start trigger
-// background thread executed at 2 kHz
-// 60-Hz notch high-Q, IIR filter, assuming fs=2000 Hz
-// y(n) = (256*x(n) -503*x(n-1) + 256*x(n-2) + 498*y(n-1)-251*y(n-2))/256 (2k sampling)
-// y(n) = (256*x(n) -476*x(n-1) + 256*x(n-2) + 471*y(n-1)-251*y(n-2))/256 (1k sampling)
+//51-tap FIR filter
+const long h[51]={4,-1,-8,-14,-16,-10,-1,6,5,-3,-13,
+     -15,-8,3,5,-5,-20,-25,-8,25,46,26,-49,-159,-257,
+     984,-257,-159,-49,26,46,25,-8,-25,-20,-5,5,3,-8,
+     -15,-13,-3,5,6,-1,-10,-16,-14,-8,-1,4};
 long Filter(long data){
-static long x[6]; // this MACQ needs twice
-static long y[6];
+static long x[102]; // this MACQ needs twice
+long y=0;
 static unsigned long n=3;   // 3, 4, or 5
+int i;
   n++;
-  if(n==6) n=3;     
-  x[n] = x[n-3] = data;  // two copies of new data
-  y[n] = (256*(x[n]+x[n-2])-503*x[n-1]+498*y[n-1]-251*y[n-2]+128)/256;
-  y[n-3] = y[n];         // two copies of filter outputs too
-  return y[n];
+  if(n==102) n=51;     
+  x[n] = x[n-51] = data;  // two copies of new data
+  for(i=n-51;i<n;i++){
+		y=y+h[i]*x[n-i];
+	}
+  return y;
 } 
 //******** DAS *************** 
 // background thread, calculates 60Hz notch filter
@@ -156,18 +158,12 @@ void ButtonWork(void)
 	long status; 
 	unsigned long myId = OS_Id(); 
   PE1 ^= 0x02;
-	//status = StartCritical();
-	//OS_bWait(&LCDmutex);
   ST7735_Message(1,8,"NumCreated =",g_NumAliveThreads); 
-	//EndCritical(status);
   PE1 ^= 0x02;
   OS_Sleep(50);     // set this to sleep for 50msec
-	//status=StartCritical();
   ST7735_Message(1,9,"PIDWork     =",PIDWork);
   ST7735_Message(1,10,"DataLost    =",DataLost);
   ST7735_Message(1,11,"Jitter 0.1us=",MaxJitter);
-	//OS_bSignal(&LCDmutex);
-	//EndCritical(status);
   PE1 ^= 0x02;
   OS_Kill();  // done, OS does not return from a Kill
 } 
@@ -179,14 +175,7 @@ void ButtonWork(void)
 // background threads execute once and return
 void SW1Push(void)
 {
-  //if(OS_MsTime() > 20)
-	//{ // debounce
    NumCreated += OS_AddThread(&ButtonWork,128,SWITCHPRI);
-		//{
-     // NumCreated++; 
-    //}
-   // OS_ClearMsTime();  // at least 20ms between touches
-  //}
 }
 //************SW2Push*************
 // Called when SW2 Button pushed, Lab 3 only
@@ -194,7 +183,6 @@ void SW1Push(void)
 // background threads execute once and return
 void SW2Push(void){
   NumCreated += OS_AddThread(&ButtonWork,128,SWITCHPRI);
-    
 }
 //--------------end of Task 2-----------------------------
 
@@ -209,19 +197,22 @@ void SW2Push(void){
 //******** Producer *************** 
 // The Producer in this lab will be called from your ADC ISR
 // A timer runs at 400Hz, started by your po
-// The timer triggers the ADC, creating the 400Hz sampling
+// The timer triggers the ADC, creating the 12800 Hz sampling
 // Your ADC ISR runs when ADC data is ready
 // Your ADC ISR calls this function with a 12-bit sample 
 // sends data to the consumer, runs periodically at 400Hz
 // inputs:  none
 // outputs: none
+uint32_t FIR_Status = 1;
 void Producer(unsigned long data){  
-  if(NumSamples < RUNLENGTH){   // finite time run
-    NumSamples++;               // number of samples
-    if(OS_Fifo_Put(data) == 0){ // send to consumer
+	unsigned long temp=data;
+    NumSamples++; 		// number of samples
+		if(FIR_Status==1){
+			temp = Filter(data);
+		}
+    if(OS_Fifo_Put(temp) == 0){ // send to consumer
       DataLost++;
     } 
-  } 
 }
 void Display(void); 
 
@@ -230,27 +221,40 @@ void Display(void);
 // calculates FFT, sends DC component to Display
 // inputs:  none
 // outputs: none
+long x[64],y[64];         // input and output arrays for FFT
+uint32_t Coordinates[2][128];
 void Consumer(void)
 { 
 	unsigned long data,DCcomponent;   // 12-bit raw ADC sample, 0 to 4095
 	unsigned long t;                  // time in 2.5 ms
 	unsigned long myId = OS_Id(); 
-  ADC_Collect(4, FS, &Producer); // start ADC sampling, channel 4, PD3, 400 Hz                /********Change ADC_Collect*****/
-  NumCreated += OS_AddThread(&Display,128,1); 
-  while(NumSamples < RUNLENGTH) 
-	{ 
-    PE2 = 0x04;
-    for(t = 0; t < 64; t++)
+	static uint32_t LCDx=0,LCDy;
+  ADC_Collect(4, FS, &Producer); // start ADC sampling, channel 4, PD3, 12800 Hz              
+  //NumCreated += OS_AddThread(&Display,128,1); 
+	PE2 = 0x04;
+	while(1){
+		for(t = 0; t < 64; t++)
 		{   // collect 64 ADC samples
-      data = OS_Fifo_Get();    // get from producer
-      x[t] = data;             // real part is 0 to 4095, imaginary part is 0
-    }
-    PE2 = 0x00;
-    cr4_fft_64_stm32(y,x,64);  // complex FFT of last 64 ADC values
-    DCcomponent = y[0]&0xFFFF; // Real part at frequency 0, imaginary part should be zero
-    OS_MailBox_Send(DCcomponent); // called every 2.5ms*64 = 160ms
-  }
-  OS_Kill();  // done
+			data = OS_Fifo_Get();    // get from producer
+			
+			//print voltage vs. time
+			LCDy = 100;	//map ADC value to pixel value
+			ST7735_DrawPixel(Coordinates[0][LCDx], Coordinates[1][LCDx],0x0000);     //Clear the previous pixel value
+			ST7735_DrawPixel(LCDx,LCDy,0xFFFF);				//Draw new pixel value
+			Coordinates[0][LCDx]=LCDx;					//Store current setpoint and speed in array to be overwritten on next pass 
+			Coordinates[1][LCDx]=LCDy;
+			LCDx++;
+			if(LCDx==128)LCDx=0;								//If the plot reaches the end of the screen, reset x coordinate
+			
+			x[t] = data;             // real part is 0 to 4095, imaginary part is 0
+		}
+		PE2 = 0x00;
+		cr4_fft_64_stm32(y,x,64);  // complex FFT of last 64 ADC values
+	}
+//	DCcomponent = y[0]&0xFFFF; // Real part at frequency 0, imaginary part should be zero
+//	OS_MailBox_Send(DCcomponent); // called every 2.5ms*64 = 160ms
+
+//  OS_Kill();  // done
 }
 //******** Display *************** 
 // foreground thread, accepts data from consumer
@@ -334,9 +338,8 @@ void doNothing0(void)
 	;
 }
 
-#define FINAL
 #ifdef FINAL
-//*******************final user main DEMONTRATE THIS TO TA**********
+//Spectrum Analyzer Main
 int main(void){ 
   OS_Init();           // initialize, disable interrupts
   PortE_Init();
@@ -346,34 +349,27 @@ int main(void){
   DataLost = 0;        // lost data between producer and consumer
   NumSamples = 0;
   MaxJitter = 0;       // in 1us units
-
-
 //********initialize communication channel
   OS_MailBox_Init();
-  OS_Fifo_Init(32);    // ***note*** 4 is not big enough*****
+  OS_Fifo_Init(128);    // ***note*** 4 is not big enough*****
 
 //*******attach background tasks***********
-  OS_AddSwitchTasks(&SW1Push,&SW2Push,SWITCHPRI);
+  //OS_AddSwitchTasks(&SW1Push,&SW2Push,SWITCHPRI);
   
-
   NumCreated = 0 ;
 // create initial foreground threads
-  NumCreated += OS_AddThread(&Interpreter,128,2); 
+  //NumCreated += OS_AddThread(&Interpreter,128,2); 
   NumCreated += OS_AddThread(&Consumer,128,1); 
-  NumCreated += OS_AddThread(&PID,128,3);  // Lab 3, make this lowest priority
-	ADC_Open(10);  // sequencer 3, channel 10, PB4, sampling in DAS()											
-	OS_AddPeriodicThread(&DAS,4,2000,1); // 2 kHz real time sampling of PB4, Timer2
- 
+  NumCreated += OS_AddThread(&PID,128,3);  // Lab 3, make this lowest priority										
   OS_Launch(TIME_2MS); // doesn't return, interrupts enabled in here
   return 0;            // this never executes
 }
 #endif
 
+
 #ifdef DEBUG
 //+++++++++++++++++++++++++DEBUGGING CODE++++++++++++++++++++++++
 // ONCE YOUR RTOS WORKS YOU CAN COMMENT OUT THE REMAINING CODE
-
-
 //LinkedList Test Code
 int TestmainLL(void){
 	tcbType* frontLL1=NULL;

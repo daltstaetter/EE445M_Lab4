@@ -247,23 +247,17 @@ void ADC0Seq3_Handler(void){
   ADC0_ISC_R = 0x08;          // acknowledge ADC sequence 3 completion
 	sr = StartCritical();
  (*ADC_Task)(ADC0_SSFIFO3_R);
-	if(NumSamples >= RUNLENGTH)
-	{
-		Status=1;							//ADC conversion complete
-		ADC0_IM_R &= ~0x08;             // disable SS3 interrupts when buffer is full
-	}
-	else
-	{
-		Status = 0;
-	}
-	
-//	if(i==NumberOfSamples){
+//	if(NumSamples >= RUNLENGTH)
+//	{
 //		Status=1;							//ADC conversion complete
 //		ADC0_IM_R &= ~0x08;             // disable SS3 interrupts when buffer is full
-//	}else{
-//		Status=0;							//ADC still filling buffer
-//		i++;
 //	}
+//	else
+//	{
+//		Status = 0;
+//	}
+	
+
 	EndCritical(sr);
 }
 

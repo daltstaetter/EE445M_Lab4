@@ -1,8 +1,8 @@
 
 
 #define TASKS
-//#define FINAL
+#define FINAL
 #define INTERPRETER
-#define DEBUG
+//#define DEBUG
 #define SYSTICK
 #define SWITCHPRI 1

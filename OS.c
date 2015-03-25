@@ -987,12 +987,13 @@ void PF3_Toggle(void)
 {
 		GPIO_PORTF_DATA_R ^= 0x08;
 }
-
+#ifdef DEBUG
 extern uint32_t MaxJitter, MaxJitterB;
 void Jitter(void){
 	printf("MaxJitterA: %d\n\r",MaxJitter);
 	printf("MaxJitterB: %d\n\r",MaxJitterB);
 }
+#endif
  
 //********OS_WakeUpSleeping**********
 //Iterates through the sleeping linked list and decrements counters

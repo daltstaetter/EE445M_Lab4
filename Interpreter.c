@@ -36,13 +36,8 @@
 #include <string.h>
 #include "OS.h"
 #include "ifdef.h"
-//#define INTERPRETER
 
 void Interpreter(void);
-
-
-
-
 //---------------------OutCRLF---------------------
 // Output a CR,LF to UART to go to a new line
 // Input: none
@@ -51,52 +46,11 @@ void OutCRLF(void){
   UART_OutChar(CR);
   UART_OutChar(LF);
 }
-//debug code
-int main1(void){
-  char i;
-  char string[20];  // global to assist in debugging
-  uint32_t n;
 
-  PLL_Init();               // set system clock to 50 MHz
-  UART_Init();              // initialize UART
-  OutCRLF();
-  for(i='A'; i<='Z'; i=i+1){// print the uppercase alphabet
-    UART_OutChar(i);
-  }
-  OutCRLF();
-  UART_OutChar(' ');
-  for(i='a'; i<='z'; i=i+1){// print the lowercase alphabet
-    UART_OutChar(i);
-  }
-  OutCRLF();
-  UART_OutChar('-');
-  UART_OutChar('-');
-  UART_OutChar('>');
-  while(1){
-    UART_OutString("InString: ");
-    UART_InString(string,19);
-    UART_OutString(" OutString="); UART_OutString(string); OutCRLF();
-
-    UART_OutString("InUDec: ");  n=UART_InUDec();
-    UART_OutString(" OutUDec="); UART_OutUDec(n); OutCRLF();
-
-    UART_OutString("InUHex: ");  n=UART_InUHex();
-    UART_OutString(" OutUHex="); UART_OutUHex(n); OutCRLF();
-
-  }
-}
-
-int main2(void){
-	PLL_Init();
-	Output_Init();
-	ST7735_Message(0,0,"Hello World",45);
-	ST7735_Message(1,8,"Hello World",45);
-	ST7735_Message(0,0,"A",12345);
-	while(1){;}
-}
 #define PE4  (*((volatile unsigned long *)0x40024040))
 #ifdef INTERPRETER
 uint16_t TestBuffer[64];
+extern uint32_t FIR_Status;
 void Interpreter(void){
 	char input_str[30];
 	int input_num,i,device,line;
@@ -119,7 +73,7 @@ void Interpreter(void){
 		printf("\n\rEnter a command:\n\r");
 		for(i=0;input_str[i]!=0;i++){input_str[i]=0;}		//Flush the input_str
 		UART_InString(input_str,30);
-		if(!strcmp(input_str,"LCD")){
+		if(!strcmp(input_str,"LCD")){	
 			printf("\n\rMessage to Print: ");
 			for(i=0;input_str[i]!=0;i++){input_str[i]=0;}		//Flush the input_str
 			UART_InString(input_str,30);
@@ -134,16 +88,17 @@ void Interpreter(void){
 			OS_Kill();
 			#ifdef PROFILER
 		} else if(!strcmp(input_str,"PROFILE")){
-			printf("\n\rThreadAddress\tThreadAction\tThreadTime\n\r");
-			for(i=0; i<PROFSIZE; i++){
-				printf("%lu\t\t%lu\t\t%lu\n\r",(unsigned long)ThreadArray[i],ThreadAction[i],ThreadTime[i]/80000);
-			}
+				printf("\n\rThreadAddress\tThreadAction\tThreadTime\n\r");
+				for(i=0; i<PROFSIZE; i++){
+					printf("%lu\t\t%lu\t\t%lu\n\r",(unsigned long)ThreadArray[i],ThreadAction[i],ThreadTime[i]/80000);
+				}
 			#endif 
+		} else if(!strcmp(input_str,"FIR - Toggle the FIR Filter")){
+				FIR_Status^=0x01;
 		}
-		else{
+			else{
 			printf("\n\rInvalid Command. Try Again\n\r");
 		}
-		//OS_Sleep(1000);
 	}
 }
 #endif
