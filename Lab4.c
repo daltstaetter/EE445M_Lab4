@@ -102,7 +102,7 @@ int i;
   if(n==102) n=51;     
   x[n] = x[n-51] = data;  // two copies of new data
   for(i=0;i<51;i++){
-		y=y+h[i]*x[n-i];
+		y=y+h1[i]*x[n-i];
 	}
   return y;
 } 
@@ -157,19 +157,24 @@ void DAS(void)
 // foreground threads run for 2 sec and die
 // ***********ButtonWork*************
 extern int g_NumAliveThreads;
+uint32_t ADCTrigMode = 3;   //initialize for continuous sampling
 void ButtonWork(void)
 {
-	long status; 
-	unsigned long myId = OS_Id(); 
-  PE1 ^= 0x02;
-  ST7735_Message(1,8,"NumCreated =",g_NumAliveThreads); 
-  PE1 ^= 0x02;
-  OS_Sleep(50);     // set this to sleep for 50msec
-  ST7735_Message(1,9,"PIDWork     =",PIDWork);
-  ST7735_Message(1,10,"DataLost    =",DataLost);
-  ST7735_Message(1,11,"Jitter 0.1us=",MaxJitter);
-  PE1 ^= 0x02;
-  OS_Kill();  // done, OS does not return from a Kill
+//	unsigned long myId = OS_Id(); 
+//  PE1 ^= 0x02;
+//  ST7735_Message(1,8,"NumCreated =",g_NumAliveThreads); 
+//  PE1 ^= 0x02;
+//  OS_Sleep(50);     // set this to sleep for 50msec
+//  ST7735_Message(1,9,"PIDWork     =",PIDWork);
+//  ST7735_Message(1,10,"DataLost    =",DataLost);
+//  ST7735_Message(1,11,"Jitter 0.1us=",MaxJitter);
+//  PE1 ^= 0x02;
+//  OS_Kill();  // done, OS does not return from a Kill
+	if(ADCTrigMode == 0){
+		//add a thread that prints one frame of data
+		//OS_Kill
+	}
+	OS_Kill();
 } 
 
 
@@ -207,7 +212,7 @@ void SW2Push(void){
 // sends data to the consumer, runs periodically at 400Hz
 // inputs:  none
 // outputs: none
-uint32_t FIR_Status = 1;
+uint32_t FIR_Status = 0;
 void Producer(unsigned long data){  
 	unsigned long temp=data;
     NumSamples++; 		// number of samples
@@ -216,7 +221,7 @@ void Producer(unsigned long data){
 		}
     if(OS_Fifo_Put(temp) == 0){ // send to consumer
       DataLost++;
-    } 
+    }
 }
 void Display(void); 
 
@@ -227,56 +232,99 @@ void Display(void);
 // outputs: none
 long x[64],y[64];         // input and output arrays for FFT
 uint32_t Coordinates[2][128];
+uint32_t DisplayMode = 1;
 void Consumer(void)
 { 
 	unsigned long data,DCcomponent;   // 12-bit raw ADC sample, 0 to 4095
 	unsigned long t;                  // time in 2.5 ms
 	unsigned long myId = OS_Id(); 
-	static uint32_t LCDx=0,LCDy;
-  ADC_Collect(4, FS, &Producer); // start ADC sampling, channel 4, PD3, 12800 Hz              
+	static uint32_t LCDx=0,LCDy; 
+  ADC_Collect(4, 12800, &Producer); // start ADC sampling, channel 4, PD3, 12800 Hz              
   //NumCreated += OS_AddThread(&Display,128,1); 
 	PE2 = 0x04;
 	while(1){
-		for(t = 0; t < 64; t++)
-		{   // collect 64 ADC samples
+		for(t = 0; t < 64; t++){   // collect 64 ADC samples
 			data = OS_Fifo_Get();    // get from producer
-			
 			//print voltage vs. time
-			LCDy = ((4095-data)*160)/4095;	//map ADC value to pixel value
-			ST7735_DrawPixel(Coordinates[0][LCDx], Coordinates[1][LCDx],0x0000);     //Clear the previous pixel value
-			ST7735_DrawPixel(LCDx,LCDy,0xFFFF);				//Draw new pixel value
-			Coordinates[0][LCDx]=LCDx;					//Store current setpoint and speed in array to be overwritten on next pass 
-			Coordinates[1][LCDx]=LCDy;
-			LCDx++;
-			if(LCDx==128)LCDx=0;								//If the plot reaches the end of the screen, reset x coordinate
-			
+			if(DisplayMode==0){
+				LCDy = ((4095-data)*160)/4095;	//map ADC value to pixel value
+				ST7735_DrawPixel(Coordinates[0][LCDx], Coordinates[1][LCDx],0x0000);     //Clear the previous pixel value
+				ST7735_DrawPixel(LCDx,LCDy,0xFFFF);				//Draw new pixel value
+				Coordinates[0][LCDx]=LCDx;					//Store current setpoint and speed in array to be overwritten on next pass 
+				Coordinates[1][LCDx]=LCDy;
+				LCDx++;
+				if(LCDx==128)LCDx=0;								//If the plot reaches the end of the screen, reset x coordinate
+			}
 			x[t] = data;             // real part is 0 to 4095, imaginary part is 0
 		}
 		PE2 = 0x00;
 		cr4_fft_64_stm32(y,x,64);  // complex FFT of last 64 ADC values
+		if(DisplayMode==1){
+			NumCreated += OS_AddThread(&Display,128,2);
+		}
 	}
-//	DCcomponent = y[0]&0xFFFF; // Real part at frequency 0, imaginary part should be zero
-//	OS_MailBox_Send(DCcomponent); // called every 2.5ms*64 = 160ms
-
-//  OS_Kill();  // done
+}
+// Newton's method
+// s is an integer
+// sqrt(s) is an integer
+static unsigned long sqrt(unsigned long s){
+	unsigned long t;         // t*t will become s
+	int n;                   // loop counter to make sure it stops running
+		t = s/10+1;            // initial guess 
+		for(n = 16; n; --n){   // guaranteed to finish
+			t = ((t*t+s)/t)/2;  
+		}
+		return t; 
 }
 //******** Display *************** 
 // foreground thread, accepts data from consumer
 // displays calculated results on the LCD
 // inputs:  none                            
 // outputs: none
+uint32_t CoordinatesFFT[2][64];
 void Display(void){ 
-unsigned long data,voltage;
-  ST7735_Message(0,0,"Run length = ",(RUNLENGTH)/FS);   // top half used for Display
-  while(NumSamples < RUNLENGTH) { 
-    data = OS_MailBox_Recv();
-    voltage = 3000*data/4095;               // calibrate your device so voltage is in mV
-    PE3 = 0x08;
-    ST7735_Message(0,1,"v(mV) =",voltage);  
-    PE3 = 0x00;
-  } 
+	short real,imaginary;
+	unsigned long data;
+	int i;
+//  ST7735_Message(0,0,"Run length = ",(RUNLENGTH)/FS);   // top half used for Display
+//  while(NumSamples < RUNLENGTH) { 
+//    data = OS_MailBox_Recv();
+//    voltage = 3000*data/4095;               // calibrate your device so voltage is in mV
+//    PE3 = 0x08;
+//    ST7735_Message(0,1,"v(mV) =",voltage);  
+//    PE3 = 0x00;
+//  } 
+	for(i=32; i<64; i++){
+				real = y[i]&0xFFFF;
+				//if(real<0){real=-real;}
+				imaginary = y[i]>>16;
+				//if(imaginary<0){imaginary=-imaginary;}
+				data = sqrt(real*real+imaginary*imaginary);
+				data = ((4095-data)*160)/4095;
+//				ST7735_DrawFastVLine(Coordinates[0][i-32],80,Coordinates[1][i-32],0x0000);
+//				ST7735_DrawFastVLine(i-32,80,100,0xFFFF);
+				ST7735_DrawPixel(Coordinates[0][i-32], Coordinates[1][i-32],0x0000);     //Clear the previous pixel value
+				ST7735_DrawPixel(i-32,data,0xFFFF);				//Draw new pixel value
+				Coordinates[0][i-32]=i-32;					//Store current setpoint and speed in array to be overwritten on next pass 
+				Coordinates[1][i-32]=data;						//If the plot reaches the end of the screen, reset x coordinate
+			}
+	for(i=0;i<32;i++){
+				real = y[i]&0xFFFF;
+				//if(real<0){real=-real;}
+				imaginary = y[i]>>16;
+				//if(imaginary<0){imaginary=-imaginary;}
+				data = sqrt(real*real+imaginary*imaginary);
+				data = ((4095-data)*160)/4095;
+//				ST7735_DrawFastVLine(Coordinates[0][i+32],80,Coordinates[1][i+32],0x0000);
+//				ST7735_DrawFastVLine(i+32,80,100,0xFFFF);
+				ST7735_DrawPixel(Coordinates[0][i+32], Coordinates[1][i+32],0x0000);     //Clear the previous pixel value
+				ST7735_DrawPixel(i+32,data,0xFFFF);				//Draw new pixel value
+				Coordinates[0][i+32]=i+32;					//Store current setpoint and speed in array to be overwritten on next pass 
+				Coordinates[1][i+32]=data;						//If the plot reaches the end of the screen, reset x coordinate
+	}
   OS_Kill();  // done
 } 
+
 
 //--------------end of Task 3-----------------------------
 

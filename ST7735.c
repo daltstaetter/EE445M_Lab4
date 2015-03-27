@@ -801,12 +801,13 @@ void static pushColor(uint16_t color) {
 //        color 16-bit color, which can be produced by ST7735_Color565()
 // Output: none
 void ST7735_DrawPixel(int16_t x, int16_t y, uint16_t color) {
-
+	//OS_bWait(&LCDmutex);
   if((x < 0) || (x >= _width) || (y < 0) || (y >= _height)) return;
 
   setAddrWindow(x,y,x+1,y+1);
 
   pushColor(color);
+	//OS_bSignal(&LCDmutex);
 }
 
 
@@ -820,6 +821,7 @@ void ST7735_DrawPixel(int16_t x, int16_t y, uint16_t color) {
 //        color 16-bit color, which can be produced by ST7735_Color565()
 // Output: none
 void ST7735_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
+	//OS_bWait(&LCDmutex);
   uint8_t hi = color >> 8, lo = color;
 
   // Rudimentary clipping
@@ -831,6 +833,7 @@ void ST7735_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
     writedata(hi);
     writedata(lo);
   }
+	//OS_bSignal(&LCDmutex);
 }
 
 

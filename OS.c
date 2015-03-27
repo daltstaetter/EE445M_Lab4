@@ -194,7 +194,6 @@ void OS_Wait(Sema4Type *semaPt){
 			LLAdd(&semaPt->FrontPt,RunPt,&semaPt->EndPt); // add thread to end of sema4 blocked LL
 			HighestPriority&=~(1<<(31-priority));		//If it's the last thread at that priority, mark that bin as empty
 			EndCritical(status);
-
 			OS_Suspend(JMP2HIGHERPRI); //since the highest priority thread is the last at that priority, re-evaluate highest priority
 		}else{
 			LLAdd(&semaPt->FrontPt,RunPt,&semaPt->EndPt); // add thread to end of sema4 blocked LL
@@ -693,7 +692,8 @@ int OS_Fifo_Put(unsigned long data)
 		// You DON'T want to call OS_Signal(&g_dataAvailable 
 		// if you didn't add more data to the fifo 
 		status = FIFO_FAIL;
-		OS_bSignal(&g_fifoMutex); // release lock on g_fifoPutPtr
+		//OS_bSignal(&g_fifoMutex); // release lock on g_fifoPutPtr
+		OS_Signal(&g_dataAvailable);
 	}
 	else
 	{ // only add data and update pointer if room left
@@ -701,7 +701,7 @@ int OS_Fifo_Put(unsigned long data)
 		status = FIFO_SUCCESS;
 		*(g_fifoPutPtr) = data; // store data at current index
 		g_fifoPutPtr = nextPutPtr; // update PutPtr
-		OS_bSignal(&g_fifoMutex); // release lock on g_fifoPutPtr
+		//OS_bSignal(&g_fifoMutex); // release lock on g_fifoPutPtr
 		OS_Signal(&g_dataAvailable); // signal you added data to the fifo and its ready to be read
 	}
 	return status;
@@ -718,7 +718,7 @@ unsigned long OS_Fifo_Get(void)
 	unsigned long data;
 	
 	OS_Wait(&g_dataAvailable); // make sure there is no underflow & there is an element in the fifo to get
-	OS_bWait(&g_fifoMutex); // lock out the g_fifoGetPtr from all other threads
+	//OS_bWait(&g_fifoMutex); // lock out the g_fifoGetPtr from all other threads
 	data = *(g_fifoGetPtr++); // get the data, then move to next index in fifo
 	
 	if(g_fifoGetPtr == &g_Fifo[g_FIFOSIZE])
@@ -726,7 +726,7 @@ unsigned long OS_Fifo_Get(void)
 		g_fifoGetPtr = &g_Fifo[0];
 	}
 	
-	OS_bSignal(&g_fifoMutex); // release lock on g_fifoGetPtr
+	//OS_bSignal(&g_fifoMutex); // release lock on g_fifoGetPtr
 	OS_Signal(&g_roomLeft);
 	
 	return data;
@@ -1095,6 +1095,11 @@ void SysTick_Handler(void)
 	//Wake up sleeping threads
 	
 	if(OS_WakeUpSleeping()){		//If a change in highest priority occured, suspend with re-evaluation of highest priority
+		EndCritical(status);
+		OS_Suspend(JMP2HIGHERPRI);
+	}
+	HiPri = HighestPri();
+	if(HiPri<RunPt->Priority){
 		EndCritical(status);
 		OS_Suspend(JMP2HIGHERPRI);
 	}

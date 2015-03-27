@@ -51,6 +51,9 @@ void OutCRLF(void){
 #ifdef INTERPRETER
 uint16_t TestBuffer[64];
 extern uint32_t FIR_Status;
+extern uint32_t ADCTrigMode;
+extern void Producer(unsigned long data);
+extern void Consumer(void);
 void Interpreter(void){
 	char input_str[30];
 	int input_num,i,device,line;
@@ -67,6 +70,11 @@ void Interpreter(void){
 	#ifdef PROFILER
 	printf("PROFILE - get profiling info for past events\n\r");
 	#endif
+	printf("ADC - start timer-triggered ADC\n\r");
+	printf("FIR - toggle the FIR filter\n\r");
+	printf("ADC-S - toggle the ADC\n\r");
+	printf("ADC-T - set ADC trigger mode\n\r");
+	printf("FFT - toggle FFT display\n\r");
 	
 	while(1){
 		//PE4^=0x10;
@@ -93,8 +101,29 @@ void Interpreter(void){
 					printf("%lu\t\t%lu\t\t%lu\n\r",(unsigned long)ThreadArray[i],ThreadAction[i],ThreadTime[i]/80000);
 				}
 			#endif 
-		} else if(!strcmp(input_str,"FIR - Toggle the FIR Filter")){
+		} else if(!strcmp(input_str,"ADC")){
+			  ADC_Collect(4, 12800, &Producer); // start ADC sampling, channel 4, PD3, 12800 Hz 
+				OS_AddThread(&Consumer,128,1);
+		} else if(!strcmp(input_str,"FIR")){
 				FIR_Status^=0x01;
+		} else if(!strcmp(input_str,"ADC-S")){
+				ADC0_IM_R ^= 0x08;  //toggles the arm bit for sequencer 3 ADC
+		} else if(!strcmp(input_str,"ADC-T")){
+				printf("\n\rSelect Trigger Mode\n\r");
+				printf("0 = Frame on Button Press\n\r");
+				printf("1 = Continuous Sampling\n\r");
+				input_num = UART_InUDec();
+				switch(input_num){
+					case 0:
+						ADCTrigMode = 0; //button press
+						break;
+					case 1:
+						ADCTrigMode = 1;  //continuous sampling
+						break;
+					default:
+						printf("Invalid Input\n\r");
+						break;
+				}
 		}
 			else{
 			printf("\n\rInvalid Command. Try Again\n\r");
